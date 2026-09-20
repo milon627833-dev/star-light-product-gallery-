@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Star Light Product Photo Gallery</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f6f8;color:#111827}
+header{background:#111827;color:#fff;text-align:center;padding:22px 12px}
+header h2{margin:0 0 10px}
+.owner{font-size:14px;line-height:1.7}
+.container{max-width:1050px;margin:auto;padding:16px}
+.box{background:#fff;border-radius:12px;padding:18px;margin-bottom:18px;box-shadow:0 2px 10px #0001}
+input{width:100%;padding:12px;margin:6px 0 10px;border:1px solid #d1d5db;border-radius:8px}
+button,a{padding:10px 14px;border:0;border-radius:8px;margin:4px 2px;font-size:14px}
+button{background:#111827;color:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+.green{background:#15803d}.red{background:#dc2626}
+.blue{background:#2563eb;color:#fff;text-decoration:none;display:inline-block}
+#admin{display:none}.status{white-space:pre-wrap;font-weight:bold;margin-top:10px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.card{background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px #0001}
+.card img{width:100%;height:190px;object-fit:cover;display:block}
+.info{padding:10px}
+.product-name{font-size:16px;font-weight:bold;margin:4px 0 8px;word-break:break-word}
+.file-name{font-size:11px;color:#6b7280;word-break:break-all}
+.fileBox{border:2px dashed #9ca3af;border-radius:10px;padding:15px;text-align:center;background:#f9fafb}
+@media(max-width:500px){
+.gallery{grid-template-columns:repeat(2,1fr);gap:9px}
+.card img{height:145px}
+}
+</style>
+</head>
+<body>
+
+<header>
+<h2>⭐ Star Light Product Photo Gallery</h2>
+<div class="owner">
+<b>মালিক: MD Milon Khan</b><br>
+📞 01913627833<br>
+📍 ঢাকা, জুরাইন, শ্যামপুর-১২০৪
+</div>
+</header>
+
+<div class="container">
+
+<div class="box">
+<h3>🔐 Admin Login</h3>
+
+<div id="loginArea">
+<input id="email" type="email" autocomplete="username" placeholder="Admin Email">
+<input id="password" type="password" autocomplete="current-password" placeholder="Admin Password">
+<button id="loginBtn" onclick="login()">Login</button>
+</div>
+
+<div id="admin">
+<p>✅ Admin Login সফল হয়েছে</p>
+
+<div class="fileBox">
+<label for="file"><b>📷 মোবাইল/কম্পিউটার থেকে ছবি নির্বাচন করুন</b></label>
+<input id="file" type="file" accept="image/*" multiple>
+<p id="selected">কোনো ছবি নির্বাচন করা হয়নি</p>
+</div>
+
+<button id="uploadBtn" class="green" onclick="uploadPhotos()">⬆️ Upload Photos</button>
+<button class="red" onclick="logout()">Logout</button>
+
+<p>প্রতিটি ছবির নিচে Product Name লিখে Save করতে পারবেন। পরে নাম পরিবর্তন বা মুছতেও পারবেন।</p>
+</div>
+
+<div id="status" class="status"></div>
+</div>
+
+<h3>📷 Product Photos</h3>
+<div id="gallery">ছবি লোড হচ্ছে...</div>
+
+</div>
+
+<script>
+const SUPABASE_URL="https://uclryfqldnjdlixfxrha.supabase.co";
+const SUPABASE_KEY="sb_publishable_WtybGJvMhm9iWzXGxELX_Q_O2QRFB-K";
+const BUCKET="product-photos";
+
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const el=id=>document.getElementById(id);
+function status(t){el("status").textContent=t}
+
+el("file").addEventListener("change",function(){
+ const files=Array.from(this.files||[]);
+ el("selected").textContent=files.length
+ ? files.length+"টি ছবি নির্বাচন করা হয়েছে"
+ : "কোনো ছবি নির্বাচন করা হয়নি";
+});
+
+async function updateUI(){
+ const {data}=await db.auth.getSession();
+ const logged=!!data.session;
+ el("loginArea").style.display=logged?"none":"block";
+ el("admin").style.display=logged?"block":"none";
+}
+
+async function login(){
+ const email=el("email").value.trim();
+ const password=el("password").value;
+
+ if(!email||!password){
+  status("Email এবং Password দিন।");
+  return;
+ }
+
+ const b=el("loginBtn");
+ b.disabled=true;
+ b.textContent="Login হচ্ছে...";
+
+ try{
+  const {data,error}=await db.auth.signInWithPassword({email,password});
+  if(error)throw error;
+  if(!data.session)throw new Error("Login session পাওয়া যায়নি।");
+
+  el("password").value="";
+  status("✅ Login সফল।");
+  await updateUI();
+  await loadGallery();
+
+ }catch(e){
+  status("❌ Login failed:\n"+(e.message||"অজানা সমস্যা"));
+ }
+
+ b.disabled=false;
+ b.textContent="Login";
+}
+
+async function logout(){
+ await db.auth.signOut();
+ status("Logout হয়েছে।");
+ await updateUI();
+ await loadGallery();
+}
+
+async function uploadPhotos(){
+ const files=Array.from(el("file").files||[]);
+
+ if(!files.length){
+  status("⚠️ আগে ছবি নির্বাচন করুন।");
+  return;
+ }
+
+ const {data}=await db.auth.getSession();
+
+ if(!data.session){
+  status("❌ আগে Admin Login করুন।");
+  return;
+ }
+
+ const b=el("uploadBtn");
+ b.disabled=true;
+
+ let success=0;
+ let failed=0;
+ let errors=[];
+
+ for(let i=0;i<files.length;i++){
+
+  const f=files[i];
+
+  if(!f.type.startsWith("image/")){
+   failed++;
+   errors.push(f.name+" → ছবি নয়");
+   continue;
+  }
+
+  status("⏳ Upload হচ্ছে: "+(i+1)+" / "+files.length+"\n"+f.name);
+
+  const ext=(f.name.split(".").pop()||"jpg").toLowerCase();
+
+  const clean=f.name
+   .replace(/\.[^/.]+$/,"")
+   .replace(/[^a-zA-Z0-9_-]/g,"_")
+   .slice(0,50);
+
+  const path=
+   "photo_"+Date.now()+"_"+
+   Math.random().toString(36).slice(2,9)+"_"+
+   clean+"."+ext;
+
+  const {error}=await db.storage
+   .from(BUCKET)
+   .upload(path,f,{
+    cacheControl:"3600",
+    upsert:false,
+    contentType:f.type
+   });
+
+  if(error){
+   failed++;
+   errors.push(f.name+" → "+error.message);
+  }else{
+   success++;
+  }
+ }
+
+ el("file").value="";
+ el("selected").textContent="কোনো ছবি নির্বাচন করা হয়নি";
+ b.disabled=false;
+
+ let text=
+  "✅ Upload শেষ\n"+
+  "সফল: "+success+"টি\n"+
+  "ব্যর্থ: "+failed+"টি";
+
+ if(errors.length){
+  text+="\n\n"+errors.join("\n");
+ }
+
+ status(text);
+ await loadGallery();
+}
+
+async function saveProductName(fileName,input){
+
+ const {data}=await db.auth.getSession();
+
+ if(!data.session){
+  status("❌ Admin Login প্রয়োজন।");
+  return;
+ }
+
+ const productName=input.value.trim();
+
+ const {error}=await db
+  .from("product_names")
+  .upsert(
+   {
+    file_name:fileName,
+    product_name:productName,
+    updated_at:new Date().toISOString()
+   },
+   {onConflict:"file_name"}
+  );
+
+ if(error){
+  status("❌ Product Name Save হয়নি:\n"+error.message);
+  return;
+ }
+
+ if(productName){
+  status("✅ Product Name Save হয়েছে।");
+ }else{
+  status("✅ Product Name মুছে ফেলা হয়েছে।");
+ }
+
+ await loadGallery();
+}
+
+async function deletePhoto(fileName){
+
+ const {data}=await db.auth.getSession();
+
+ if(!data.session){
+  status("❌ Admin Login প্রয়োজন।");
+  return;
+ }
+
+ if(!confirm("এই ছবিটি Delete করবেন?"))return;
+
+ const {error}=await db
+  .storage
+  .from(BUCKET)
+  .remove([fileName]);
+
+ if(error){
+  status("❌ Delete failed:\n"+error.message);
+  return;
+ }
+
+ await db
+  .from("product_names")
+  .delete()
+  .eq("file_name",fileName);
+
+ status("✅ ছবি Delete হয়েছে।");
+ await loadGallery();
+}
+
+async function loadGallery(){
+
+ const g=el("gallery");
+ g.innerHTML="<p>ছবি লোড হচ্ছে...</p>";
+
+ const {data:files,error}=await db
+  .storage
+  .from(BUCKET)
+  .list("",{
+   limit:1000,
+   sortBy:{column:"created_at",order:"desc"}
+  });
+
+ if(error){
+  g.innerHTML="<p>❌ "+error.message+"</p>";
+  return;
+ }
+
+ const list=(files||[]).filter(x=>x.name);
+
+ if(!list.length){
+  g.innerHTML="<p>এখনো কোনো ছবি নেই।</p>";
+  return;
+ }
+
+ const {data:names,error:nameError}=await db
+  .from("product_names")
+  .select("file_name,product_name");
+
+ const nameMap={};
+
+ if(!nameError){
+  (names||[]).forEach(x=>{
+   nameMap[x.file_name]=x.product_name||"";
+  });
+ }
+
+ const session=(await db.auth.getSession()).data.session;
+
+ g.innerHTML="";
+
+ list.forEach(f=>{
+
+  const url=db
+   .storage
+   .from(BUCKET)
+   .getPublicUrl(f.name).data.publicUrl;
+
+  const card=document.createElement("div");
+  card.className="card";
+
+  const img=document.createElement("img");
+  img.src=url;
+  img.loading="lazy";
+  img.alt=nameMap[f.name]||"Product";
+
+  const info=document.createElement("div");
+  info.className="info";
+
+  const productName=document.createElement("div");
+  productName.className="product-name";
+  productName.textContent=
+   nameMap[f.name]||"Product Name নেই";
+
+  info.appendChild(productName);
+
+  if(session){
+
+   const input=document.createElement("input");
+   input.value=nameMap[f.name]||"";
+   input.placeholder="প্রোডাক্টের নাম লিখুন";
+
+   const save=document.createElement("button");
+   save.className="green";
+   save.textContent="💾 Save Name";
+
+   save.onclick=()=>{
+    saveProductName(f.name,input);
+   };
+
+   info.appendChild(input);
+   info.appendChild(save);
+  }
+
+  const download=document.createElement("a");
+  download.className="blue";
+  download.href=url;
+  download.target="_blank";
+  download.rel="noopener";
+  download.textContent="⬇️ Download";
+
+  info.appendChild(download);
+
+  if(session){
+
+   const del=document.createElement("button");
+   del.className="red";
+   del.textContent="🗑️ Delete";
+
+   del.onclick=()=>{
+    deletePhoto(f.name);
+   };
+
+   info.appendChild(del);
+  }
+
+  card.appendChild(img);
+  card.appendChild(info);
+  g.appendChild(card);
+ });
+}
+
+db.auth.onAuthStateChange(()=>{
+ setTimeout(updateUI,0);
+});
+
+updateUI();
+loadGallery();
+</script>
+
+</body>
+</html>
